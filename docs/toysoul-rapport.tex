@@ -1,0 +1,620 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+\usepackage{graphicx}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,longtable,tabularx,array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{enumitem}
+\usepackage{hyperref}
+
+\definecolor{soulpurple}{HTML}{705984}
+\definecolor{codebackground}{HTML}{F5F2F7}
+\hypersetup{colorlinks=true,linkcolor=soulpurple,urlcolor=soulpurple}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{codebackground},
+  frame=single,
+  breaklines=true,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  xleftmargin=0.3em,
+  xrightmargin=0.3em
+}
+\setlist[itemize]{topsep=4pt,itemsep=3pt}
+\setlist[enumerate]{topsep=4pt,itemsep=3pt}
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+\setlength{\emergencystretch}{3em}
+\renewcommand{\arraystretch}{1.2}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\title{ToySoul Project Report\\[0.5em]
+\large Product Conception, Architecture, Implementation and Validation\\
+of the SoulToy Designer-Toy Exchange MVP}
+\author{boukhrouf.saad}
+\date{October 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+SoulToy is a web application that connects personal creativity with surprise exchanges between participants. A user describes or manually designs an original collectible, customizes it in an interactive three-dimensional studio, attaches a private message, and enters an exchange after a simulated payment. An administrator creates a matching round and manages simulated production and delivery. Each recipient then confirms receipt, reveals their assigned collectible, and adds it to a persistent digital collection.
+
+This report documents the implemented minimum viable product in the ToySoul repository. It explains the product conception, requirements, architectural layers, technologies, relational data model, procedural rendering, concept-generation providers, matching algorithm, security boundaries, deployment configuration, and automated validation. It also identifies the limits of the demonstration: payments and shipping are simulated, the default concept engine is deterministic rather than a trained AI model, and several production integrations remain future work.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Introduction}
+
+Digital commerce usually focuses on selecting a known product and purchasing it for a known customer. SoulToy explores a different interaction: the user creates an object for an unknown recipient and receives another person's creation in return. The experience combines a creative tool, a collectible identity, a controlled exchange process, and an emotional reveal.
+
+The product name used in the interface is \textbf{SoulToy}; the development workspace is named \textbf{ToySoul}. The product's central statement is:
+\begin{quote}
+\emph{Create a little soul. Send it into the world.}
+\end{quote}
+
+The implementation is intended for local demonstrations and evaluation by early users. Its objective is an operational, persisted journey rather than a set of independent interface mockups. The original repository was empty, so the architecture and database were established without replacing an existing implementation or deviating from pre-existing UML or SQL documents.
+
+\section{Product Conception and Objectives}
+
+\subsection{The underlying concept}
+Each collectible represents a small expression of its creator: a color, a mood, a personality, a story, and an optional secret message. The exchange introduces uncertainty about the recipient and the incoming design, while the lifecycle provides enough information to make the process understandable.
+
+The complete journey is:
+\begin{center}
+\small
+Imagine $\rightarrow$ Create $\rightarrow$ Customize $\rightarrow$ Finalize\\
+$\rightarrow$ Simulated payment $\rightarrow$ Pool $\rightarrow$ Matching\\
+$\rightarrow$ Production $\rightarrow$ Shipping $\rightarrow$ Receipt $\rightarrow$ Reveal.
+\end{center}
+
+\subsection{Project objectives}
+\begin{itemize}
+  \item Make original character creation accessible without specialist design skills.
+  \item Offer both assisted generation and manual editing through one configuration model.
+  \item Render a real procedural 3D character that responds immediately to customization.
+  \item Persist designs, payments, queue entries, assignments, notifications and collections.
+  \item Ensure each participant sends one toy and receives one different toy per round.
+  \item Protect the incoming surprise and restrict private messages to authorized viewers.
+  \item Provide administrators with matching, moderation and delivery-management tools.
+  \item Validate the complete workflow with database and browser tests.
+\end{itemize}
+
+\subsection{Scope of the MVP}
+The application simulates payment, manufacturing, shipping, and delivery. It does not collect card numbers, banking credentials, or physical addresses. Its digital collectibles are database-backed identities and collection records; the project does not implement blockchain tokens, cryptocurrency, or NFT ownership.
+
+The editable character belongs to one original procedural family. Variations are produced through configurable geometry, materials, facial features and a single selected accessory. Additional sculpted character families and real manufacturing-ready model export are outside the current scope.
+
+\section{Requirements and Actors}
+
+\subsection{Actors and permissions}
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{p{2.7cm}Y}
+\toprule
+\textbf{Actor} & \textbf{Responsibilities and access}\\
+\midrule
+Visitor & Explore the landing page and public gallery; generate local concepts and experiment with the studio; register to persist a design.\\
+Participant & Manage owned drafts, finalize designs, simulate payment, join the queue, track exchanges, confirm assigned deliveries and access received collectibles.\\
+Administrator & Inspect operational data, moderate content, suspend participants, run matching, advance simulated production and shipping, and review audit records.\\
+Recipient & A participant acting in the context of a particular assignment; only that assigned user can confirm receipt and unlock its secret.\\
+\bottomrule
+\end{tabularx}
+\caption{Application actors and their responsibilities.}
+\end{table}
+
+\subsection{Functional requirements}
+The main requirements cover authentication; character generation; 3D customization; draft persistence; finalization; simulated checkout; queue eligibility; atomic matching; delivery transitions; reveal; collection management; notifications; public identities and QR codes; and administrator operations.
+
+\subsection{Non-functional requirements}
+The application must remain usable on desktop and mobile, use strict typing, validate untrusted inputs, enforce authorization on the server, preserve relational consistency, handle concurrent matching requests, and provide clear errors. Reduced-motion preferences and a WebGL fallback improve usability across different browsers and devices. A documented local setup and reproducible tests support maintenance.
+
+\subsection{Representative use cases}
+\begin{enumerate}
+  \item A visitor describes a dreamy purple creature and receives three concepts.
+  \item A participant edits its appearance, names it, writes a secret, and saves a draft.
+  \item The participant finalizes the design and retries a simulated failed payment.
+  \item The paid creation joins the queue if its owner has no other waiting entry.
+  \item An administrator matches at least three eligible participants.
+  \item The administrator advances each assignment through the delivery lifecycle.
+  \item Each recipient confirms receipt and reveals a different creator's toy.
+\end{enumerate}
+
+\section{Technology Stack}
+
+Table~\ref{tab:stack} records the dependency ranges declared by the project. The committed npm lockfile records the exact resolved installation. The application uses maintained libraries rather than implementing authentication or rendering infrastructure from scratch.
+
+\begin{longtable}{p{3.5cm}p{2.1cm}p{8.1cm}}
+\caption{Main technologies and their implementation roles.}\label{tab:stack}\\
+\toprule
+\textbf{Technology} & \textbf{Declared version} & \textbf{Role}\\
+\midrule\endfirsthead
+\toprule
+\textbf{Technology} & \textbf{Declared version} & \textbf{Role}\\
+\midrule\endhead
+Next.js & 16.4.x & App Router, page rendering, dynamic routes, server route handlers and production build.\\
+React / React DOM & 19.3.x & Component-based interface and interactive state updates.\\
+TypeScript & 7.0.x & Strict static typing for frontend, backend, services and tests.\\
+Tailwind CSS & 4.3.x & Styling foundation, theme declarations and PostCSS integration, complemented by custom CSS.\\
+Radix UI Slot & 1.4.x & Composition primitive for the reusable shadcn-style button component.\\
+Motion & 14.x & Hero movement and reveal transitions; reduced-motion integration.\\
+Lucide React & 1.53.x & Consistent interface icons.\\
+Three.js & 0.186.x & WebGL scene, meshes, geometries, lights and materials.\\
+React Three Fiber & 9.8.x & React integration for the live Three.js scene.\\
+Drei & 10.7.x & Orbit controls and contact-shadow helpers.\\
+Zustand & 5.0.x & Interactive design state, snapshots and undo/redo.\\
+Prisma Client / CLI & 7.10.x & Typed persistence, relational schema and versioned migrations.\\
+Prisma MariaDB adapter & 7.10.x & Driver adapter connecting Prisma to MySQL-compatible databases.\\
+MySQL & 8.4 & Database target specified in Docker Compose.\\
+MariaDB & 10.4 & Isolated local database used for the executed validation on this machine.\\
+Better Auth & 1.7.x & Email/password authentication, password hashing and persistent sessions.\\
+Zod & 4.6.x & Runtime validation of prompts, designs and API payloads.\\
+QRCode & 1.5.x & QR images containing absolute collectible-page URLs.\\
+Recharts & 3.10.x & Administrator lifecycle statistics chart.\\
+Vitest & 5.0.x & Unit, provider, database-integration and concurrency tests.\\
+Playwright & 1.64.x & Chromium browser scenarios and responsive checks.\\
+tsx / dotenv & 4.23.x / 18.x & TypeScript scripts and environment-variable loading.\\
+Prettier & 3.9.x & Source formatting.\\
+clsx / tailwind-merge & 2.1.x / 3.7.x & Conditional classes and utility-class merging.\\
+\bottomrule
+\end{longtable}
+
+Node.js 22.12 or newer is the documented runtime requirement. npm manages packages and execution commands. Docker Compose describes the database service; a Dockerfile describes the application build. Type declaration packages provide library types during compilation. Dependency overrides select patched transitive versions, and the executed npm audit reported zero known vulnerabilities at the time of validation.
+
+\section{Overall Architecture and Application Layers}
+
+\subsection{Architectural approach}
+SoulToy is a modular monolithic application. Frontend and server-side code share one Next.js project, while persistent records live in a relational database. This avoids separate services for small MVP features and keeps authorization and transactional rules close to the data they protect.
+
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{p{3.2cm}Y}
+\toprule
+\textbf{Layer} & \textbf{Responsibility}\\
+\midrule
+Presentation & Pages, navigation, forms, cards, notifications and administrator views.\\
+Interactive graphics & Procedural 3D rendering, camera controls, animation and PNG capture.\\
+Client state & Current design, secret text, undo/redo snapshots and save feedback.\\
+HTTP boundary & Authentication, role checks, origin checks, input parsing and response/error handling.\\
+Application services & Draft persistence, finalization, payments, pool entry, matching, receipt and audits.\\
+Domain rules & Pure eligibility predicates, lifecycle permissions and cyclic permutation logic.\\
+Persistence & Prisma models, database transactions, foreign keys, unique indexes and locking.\\
+Integration adapters & Better Auth, optional concept provider, QR generation and simulated external operations.\\
+\bottomrule
+\end{tabularx}
+\caption{Separation of application responsibilities.}
+\end{table}
+
+\subsection{Request processing}
+A typical write follows the sequence:
+\begin{enumerate}
+  \item The interface submits JSON to a route handler.
+  \item The HTTP boundary resolves the session and checks the current database user.
+  \item The request origin and rate limit are checked; Zod validates the payload.
+  \item A service checks ownership and business conditions.
+  \item Related persistence operations execute inside a transaction where required.
+  \item The response updates the interface or navigates to the next step.
+\end{enumerate}
+
+Validation therefore occurs at two distinct levels: TypeScript checks source-code contracts during development, while Zod and service assertions validate actual runtime requests.
+
+\subsection{Source organization}
+\begin{lstlisting}
+src/
+  app/                 # Pages, layouts and HTTP route handlers
+    api/               # Authentication and application endpoints
+    studio/            # Creation and live customization
+    dashboard/         # Participant universe
+    checkout/          # Simulated payment and pool entry
+    reveal/            # Recipient reveal
+    toy/               # Public collectible identities
+    admin/             # Protected operations interface
+  components/          # Shared UI, graphics and feature views
+  lib/
+    design.ts          # Zod schema and deterministic concepts
+    generator.ts       # Concept-provider abstraction
+    rules.ts           # Pure domain rules
+    services.ts        # Transactional application operations
+    http.ts            # Request security and error boundary
+    db.ts              # Prisma client and driver adapter
+    auth.ts            # Better Auth server configuration
+    studio-store.ts    # Zustand design history
+prisma/                # Schema, migrations and seed script
+tests/                 # Vitest tests
+e2e/                   # Playwright scenarios
+scripts/               # Database preparation and screenshots
+docs/                  # Architecture and demonstration guides
+\end{lstlisting}
+
+\section{Interface Conception and User Experience}
+
+\subsection{Visual identity}
+The visual language combines warm off-white surfaces, lavender, muted coral, pale mint and charcoal. Rounded cards, soft shadows, restrained iconography and editorial headings support the collectible theme. The public interface emphasizes creativity and discovery; administrative tables are reserved for operational work.
+
+The homepage includes the main value proposition, an interactive original character, creation calls to action, a three-step explanation, example collectibles, a surprise-exchange section, a journey visualization and informational footer links.
+
+\subsection{Navigation and page structure}
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{p{4cm}Y}
+\toprule
+\textbf{Route} & \textbf{Purpose}\\
+\midrule
+\texttt{/} & Product introduction and interactive hero.\\
+\texttt{/login} & Registration and sign-in.\\
+\texttt{/studio} & Concept generation and manual 3D editing.\\
+\texttt{/dashboard} & Drafts, sent toys, incoming mysteries and collection.\\
+\texttt{/checkout/:id} & Simulated payment and exchange-pool entry.\\
+\texttt{/reveal/:id} & Authorized receipt confirmation and reveal.\\
+\texttt{/toy/:publicId} & Permanent collectible identity and QR code.\\
+\texttt{/gallery} & Received public collectibles and example concepts.\\
+\texttt{/notifications} & Notifications and read-state actions.\\
+\texttt{/admin} & Administrator modules and exchange operations.\\
+\texttt{/info/:slug} & About, FAQ, privacy and demonstration terms.\\
+\bottomrule
+\end{tabularx}
+\caption{Main application routes.}
+\end{table}
+
+\subsection{Responsive and accessible behavior}
+Layouts adapt from multi-column desktop arrangements to narrower mobile views. Forms have labels, interactive controls have accessible names, navigation includes a skip link, and keyboard focus is visible. The studio supports operating-system reduced-motion preferences and an explicit motion toggle. If WebGL is unavailable, a labelled illustrated fallback allows editing to continue.
+
+These measures improve accessibility, but the project has not completed a formal accessibility certification or comprehensive screen-reader audit.
+
+\section{Concept Generation and AI Integration Design}
+
+\subsection{Shared configuration contract}
+Both creation modes produce a structured \texttt{Design} object. It contains the name, archetype, body shape, colors, finish, eye style and color, mouth, eyebrows, ears, horns, tail, pattern, accessory, mood, personality, origin story and seed. The secret message is validated separately and stored in its own entity.
+
+Zod enumerations limit features to values supported by the renderer. Text lengths and hexadecimal colors are validated. For example, body shape is round, pear or bean, and finish is matte, satin or gloss.
+
+\subsection{Deterministic local engine}
+The default engine interprets keywords for colors, moods, archetypes and accessories. It hashes the normalized prompt, selected mood and optional palette to create a reproducible seed, then returns three alternatives.
+
+The same input produces the same local configurations. Ambiguous descriptions receive controlled creative defaults. The interface explicitly identifies this as a local concept engine; it does not claim that a trained AI model generated the result.
+
+\subsection{Optional external provider}
+The provider interface defines a generation operation returning three validated designs. An optional adapter calls an OpenAI-compatible structured JSON endpoint using server-side configuration:
+\begin{lstlisting}
+AI_BASE_URL
+AI_API_KEY
+AI_MODEL
+\end{lstlisting}
+
+The request has a 15-second timeout. Unsupported or missing attributes are replaced with supported local defaults, and each resulting object is validated again. Network failures or malformed responses trigger a labelled local fallback.
+
+The adapter is implemented and tested with mocked provider responses. A live provider request was not verified because operator credentials were not configured. Optional AI image generation is not implemented. In every path, editable 3D geometry is created separately from the structured design.
+
+\section{Interactive 3D Studio}
+
+\subsection{Procedural character construction}
+Three.js primitives build the character's rounded head, body, arms, feet, ears, horns and tail. Additional geometry produces facial expressions, star-shaped eyes and accessories such as glasses, a scarf, necklace, hat, backpack, wings, helmet or flower.
+
+React Three Fiber expresses the scene as React components. Updating a configuration changes geometry selection, mesh transforms or material properties. The character is therefore a live scene rather than a static concept image.
+
+\subsection{Materials, lighting and environment}
+Primary and secondary colors determine the character's appearance. Material roughness distinguishes matte, satin and gloss. Ambient, hemisphere and directional lighting provide a soft studio look. A procedural pedestal and contact shadows establish the collectible as a displayed object.
+
+Orbit controls allow rotation and zooming. The studio includes camera reset, automatic rotation, randomization and reduced motion. The renderer limits display pixel ratio to balance visual quality and workload. Gallery cards use lightweight procedural SVG illustrations to avoid creating a WebGL context for every card.
+
+\subsection{Customization and state management}
+The controls are grouped into Body, Face, Features, Accessories and Identity tabs. Zustand stores the active design and secret, along with previous and future snapshots. Undo restores an earlier snapshot; redo restores a reverted one. History is bounded to avoid indefinite growth.
+
+The MVP allows one accessory at a time. Its archetypes influence the procedural configuration rather than selecting entirely separate sculpted meshes.
+
+\subsection{Saving, versioning and export}
+Authenticated drafts autosave after a 1.2-second debounce. Client saves are coordinated, and the server checks the stored design version before applying an update. A stale version returns a conflict instead of silently overwriting another tab's work.
+
+Guest work is temporarily retained in browser session storage during sign-up. Once saved, the database becomes the authoritative record and the browser URL identifies the draft. Finalization waits for persistence and locks normal participant editing.
+
+PNG export captures the actual WebGL canvas. A bounded preview asset can also be persisted. This is a visual preview; it is not a manufacturing-ready CAD file or printable mesh export.
+
+\section{Data Conception and Relational Model}
+
+\subsection{Database design principles}
+The model separates design state, payment state, queue membership and assignment lifecycle. This avoids treating unrelated events as one overloaded toy status. Prisma generates typed queries and migrations from the relational schema, while transactions enforce conditions involving several tables.
+
+\begin{longtable}{p{3.5cm}p{10.2cm}}
+\caption{Persistent entities and their responsibilities.}\\
+\toprule\textbf{Entity} & \textbf{Purpose}\\
+\midrule\endfirsthead
+\toprule\textbf{Entity} & \textbf{Purpose}\\
+\midrule\endhead
+User & Creator identity, unique email, pseudonym, role and suspension flag.\\
+Account & Authentication-provider identity and hashed credential information.\\
+Session & Persistent session token, owner, expiration and session metadata.\\
+Verification & Authentication verification records supported by the library; email recovery workflows remain future work.\\
+Toy & Creator, name, public identifier, edition, design status and moderation flag.\\
+ToyDesign & Structured JSON configuration and optimistic version counter.\\
+ToyAsset & Optional preview assets associated with a toy.\\
+SecretMessage & Bounded private text stored separately from the design.\\
+Payment & Simulated result, owner, integer MAD amount and status history.\\
+ExchangePoolEntry & Queue membership, waiting/matched state and active-user uniqueness.\\
+Exchange & Matching round, idempotency key, round status and timestamps.\\
+Match & One toy assignment with sender, recipient and individual lifecycle.\\
+Shipment & Simulated destination and unique tracking identifier.\\
+CollectionEntry & Received assignment, recipient and persisted reveal timestamp.\\
+Notification & User event, title, message, related entity and read state.\\
+AdminAuditLog & Administrator, action, affected entity, details and timestamp.\\
+OperationLock & Stable database row used to serialize exchange-sensitive writes.\\
+\bottomrule
+\end{longtable}
+
+\subsection{Relationships and cardinalities}
+\begin{itemize}
+  \item A user creates many toys; every toy has exactly one creator.
+  \item A toy has at most one design row, secret row and payment row by database uniqueness; application creation establishes its design and secret.
+  \item A toy can have several assets, but at most one queue entry and one assignment.
+  \item An exchange contains multiple matches.
+  \item A match identifies exactly one toy, one sender and one recipient.
+  \item A match can have one shipment and one collection entry.
+  \item A user can have many sessions, notifications and received collection entries.
+\end{itemize}
+
+\subsection{Critical constraints}
+Unique indexes prevent a toy from being assigned twice and prevent repeated senders or recipients within one round. A database check prevents equal sender and recipient identifiers. Foreign keys preserve relationships.
+
+The queue uses a nullable unique \texttt{activeUserId}. Waiting entries hold the user's identifier; consumed entries clear it. This permits one waiting entry per user while allowing the same user to participate in later rounds with a new toy.
+
+Ownership, paid eligibility, suspension, moderation and correct collection recipient are cross-table rules enforced in transactional services. JSON design data is intentional: supported appearance attributes are validated centrally without requiring a separate relational table for each visual option.
+
+\section{Payment, Pool and Matching Engine}
+
+\subsection{Simulated checkout}
+Finalization creates a public identifier and a pending payment. Default fictional values are 149 MAD for creation and 25 MAD for shipping, for a total of 174 MAD. Environment variables configure these demo prices.
+
+The checkout supports successful, failed and cancelled simulation. Results and timestamped history are persisted. Failed or cancelled attempts can be retried; a paid result is not overwritten by another demo failure. Pool entry is validated on the server and requires a paid, finalized toy.
+
+\subsection{Eligibility}
+A waiting creation is eligible only when ownership is correct, its design is finalized, payment is paid, no assignment exists, the participant is active, and the creation is not held by moderation. Joining also checks that the user has no other waiting entry.
+
+The pool is a persistent queue, distinct from an exchange round. It can supply many rounds over time. Entries consumed by matching remain as historical records.
+
+\subsection{Cyclic assignment}
+Let a shuffled sequence of eligible participants be:
+\[
+P=(p_0,p_1,\ldots,p_{n-1}), \qquad n\geq 3.
+\]
+The toy created by participant $p_i$ is assigned to:
+\[
+f(p_i)=p_{(i+1)\bmod n}.
+\]
+This single cycle gives every participant exactly one outgoing and one incoming assignment. It prevents self-assignment and direct reciprocal two-person swaps.
+
+For example, the shuffled order Alice, Sara, Yassine produces:
+\[
+\text{Alice}\rightarrow\text{Sara},\quad
+\text{Sara}\rightarrow\text{Yassine},\quad
+\text{Yassine}\rightarrow\text{Alice}.
+\]
+
+The service uses a Fisher--Yates shuffle with randomness supplied by Node's cryptographic facilities. It considers up to 80 candidate cycles and retains the one with the fewest historical directed pairings. Avoiding repeats is best effort, since a completely new pairing may be impossible.
+
+\subsection{Atomicity, locking and idempotency}
+Matching acquires the shared operation row with \texttt{SELECT ... FOR UPDATE}, revalidates eligibility, and writes the exchange, matches, queue consumption, notifications and audit inside one transaction.
+
+Other operations affecting eligibility, including payments, queue entry, suspension and moderation, use the same lock. This prevents eligibility from changing while a round is being created.
+
+A unique request key provides idempotency. Retrying a successful request returns the same exchange. Concurrent requests with different keys serialize: after the first consumes the queue, the second reevaluates the remaining participants rather than reusing the same toys. Unique constraints provide an additional backstop.
+
+The singleton lock is a deliberate MVP trade-off. It simplifies correctness but would limit throughput at larger scale; partitioned pools and carefully ordered locks are future options.
+
+\section{Delivery Lifecycle, Reveal and Collection}
+
+\subsection{Separated state machines}
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{p{3cm}Y}
+\toprule\textbf{Domain} & \textbf{States}\\
+\midrule
+Toy & DRAFT, READY.\\
+Payment & PENDING, PAID, FAILED, CANCELLED.\\
+Assignment & MATCHED, PRODUCTION, SHIPPED, DELIVERED, RECEIVED, COMPLETED, CANCELLED.\\
+\bottomrule
+\end{tabularx}
+\caption{Independent design, payment and assignment states.}
+\end{table}
+
+Administrators may advance an assignment from MATCHED to PRODUCTION, then SHIPPED, then DELIVERED. Only its recipient can confirm RECEIVED. Receipt creates the collection entry and records completion in the same transaction.
+
+Cancellation is allowed before shipping, from MATCHED or PRODUCTION. Cancelled toys remain assigned and cannot be entered again. An exchange is completed only when all its matches are completed. If it contains cancellations, it becomes cancelled once all remaining assignments are terminal.
+
+\subsection{Surprise and visibility policy}
+Incoming dashboard records expose lifecycle progress and simulated tracking but omit the incoming toy identifier, name, design, sender identity and secret. Before receipt, the public collectible page also shows a mystery state, except to the creator.
+
+After receipt, the collectible design, story and creator pseudonym can be public. Its secret remains restricted to the creator, the actual recipient and authorized moderators. This policy is applied before server responses are serialized, so private content is not merely hidden by interface styling.
+
+\subsection{Reveal and permanent identity}
+Motion animates the mystery-box opening and appearance of the character. The reveal presents its name, personality, story, creator pseudonym and secret. Receipt already persists the collection entry; the collection button navigates to that saved collection.
+
+Each finalized toy receives a unique public identifier, for example \texttt{SOUL-2026-8F2A91}, and an identity route. QR generation encodes the absolute route using the configured application URL. The QR is a link to the digital identity, not an ownership-transfer mechanism.
+
+\section{Notifications and Administration}
+
+\subsection{Internal notifications}
+Notifications are stored for finalization, payment, pool entry, matching, production, shipping, delivery, receipt and completion. Each record includes its user, type, title, message, related entity, creation time and read flag.
+
+The interface includes a bell, unread indication, dropdown, dedicated page and mark-as-read operations. Polling refreshes selected participant data every 30 seconds. No external email provider is required.
+
+\subsection{Administrator modules}
+The protected administrator area includes:
+\begin{itemize}
+  \item Database-derived user, toy, payment, queue, exchange and delivery statistics.
+  \item A lifecycle distribution chart rendered with Recharts.
+  \item User activity counts and participant suspension; suspension revokes existing sessions.
+  \item Design inspection and moderation of toy names, stories and messages.
+  \item Payment results and histories.
+  \item Eligible and rejected queue entries with matching controls.
+  \item Rounds, individual matches, simulated shipments and lifecycle histories.
+  \item Generated notifications and administrative audit records.
+\end{itemize}
+
+Administrative actions record the actor, action, entity and relevant details. Moderation can hold a creation from matching and the public gallery. The current interface loads operational records without pagination, which is suitable for the demonstration dataset but should evolve for larger volumes.
+
+\section{Security and Error Handling}
+
+\subsection{Authentication and authorization}
+Better Auth manages credential hashing and database-backed sessions. Application services do not store plaintext passwords. Role and suspension fields are controlled by the server; registration cannot grant administrator privileges.
+
+Protected requests check the current user record rather than trusting only interface state. Ownership checks prevent participants from reading or modifying another creator's private draft. Administrative routes check the administrator role, while receipt checks the assignment's recipient.
+
+\subsection{Validation and request protection}
+Zod validates supported design values, text bounds, colors and request payloads. Application writes require the configured same-origin header, and authentication endpoints use the authentication library's protection. Sensitive requests are rate limited.
+
+Private JSON responses use a no-store cache policy. Security headers include content-type protection, frame restrictions and a referrer policy. React output encoding reduces the risk from rendering submitted text.
+
+\subsection{Secrets, moderation and limitations}
+Database credentials, session secrets and provider keys belong in environment variables. Local environment files and runtime databases are ignored by Git. No real address or financial information is requested.
+
+Simple checks reject a small set of obvious abusive phrases, and administrators can moderate content. This is not comprehensive multilingual moderation. The request limiter is process-local; a distributed deployment requires shared rate-limit storage.
+
+\subsection{Error semantics}
+The HTTP boundary maps invalid input and illegal transitions to clear client errors. Authentication, authorization, inaccessible records, stale versions, oversized bodies and request limits use appropriate status codes. Unexpected failures are logged server-side and return a generic client message without internal details.
+
+\section{API Conception}
+
+Route handlers are small adapters around the application services. The API uses JSON and session cookies; it does not rely on a browser-supplied owner or administrator role.
+
+\begin{longtable}{p{1.3cm}p{4.6cm}p{7.8cm}}
+\caption{Principal HTTP interfaces.}\\
+\toprule\textbf{Method} & \textbf{Route} & \textbf{Operation}\\
+\midrule\endfirsthead
+\toprule\textbf{Method} & \textbf{Route} & \textbf{Operation}\\
+\midrule\endhead
+GET/POST & \texttt{/api/auth/*} & Authentication and session operations.\\
+POST & \texttt{/api/generate} & Generate three concepts for an authenticated participant.\\
+POST & \texttt{/api/toys} & Create or version-check an owned draft.\\
+GET & \texttt{/api/toys/:id} & Read an owned editable record.\\
+POST & \texttt{/api/toys/:id} & Finalize, simulate payment, or join the queue.\\
+GET & \texttt{/api/dashboard} & Owned creations, sent progress, redacted incoming data and collection.\\
+GET/POST & \texttt{/api/notifications} & Read owned notifications or update their read flags.\\
+POST & \texttt{/api/matches/:id} & Authorized lifecycle transition or recipient receipt.\\
+GET & \texttt{/api/admin} & Protected operational data.\\
+POST & \texttt{/api/admin} & Matching, suspension or moderation.\\
+\bottomrule
+\end{longtable}
+
+\section{Development, Deployment and Demonstration Data}
+
+\subsection{Local configuration}
+The project requires Node.js, npm and a compatible database. Its environment example defines the database URL, session secret, application URLs, configurable demo credentials, prices, minimum matching size and optional concept-provider settings.
+
+The standard setup is:
+\begin{lstlisting}
+npm ci
+# Copy .env.example to .env and configure local values.
+docker compose up -d db
+npm run db:generate
+npm run db:migrate
+npm run db:seed
+npm run dev
+\end{lstlisting}
+
+Docker Compose specifies MySQL 8.4, persistent database storage, loopback port binding and a health check. The application Dockerfile installs dependencies, generates Prisma code and builds Next.js. Runtime secrets must be supplied by the operator, and migrations should run before the server starts.
+
+\subsection{Executed local environment}
+Docker was unavailable on the development machine. Validation therefore used the existing XAMPP MariaDB executable with a separate workspace-owned data directory and loopback port 3307. Existing XAMPP database files were not modified.
+
+This verifies the implementation on the local MySQL-compatible server. It does not constitute an executed MySQL 8 container deployment. Public hosting, production backups and recovery procedures remain outside the verified demonstration.
+
+\subsection{Seed data}
+The seed creates one administrator, six participants and twelve original toys. It includes drafts, finalized paid and unpaid designs, three waiting entries, one completed round, one active round, notifications and collection entries.
+
+Demo passwords are supplied through an environment variable rather than hardcoded production credentials. The seed preserves an already populated demonstration instead of resetting participant work.
+
+\section{Testing and Validation}
+
+\subsection{Test strategy}
+Validation is organized into pure rule tests, provider-adapter tests, database integration/concurrency tests, and browser scenarios. Separate test databases isolate the demonstration records from automated test activity.
+
+\subsection{Executed results}
+\begin{table}[htbp]
+\centering\small
+\begin{tabularx}{\textwidth}{p{3.8cm}Yp{2cm}}
+\toprule\textbf{Check} & \textbf{Coverage} & \textbf{Result}\\
+\midrule
+Strict TypeScript & Source and interface contracts. & Passed\\
+Production build & Prisma generation and optimized Next.js compilation. & Passed\\
+22 Vitest tests & Design validation, concepts, provider fallback, eligibility, duplicate prevention, permutations, lifecycle, persistence and concurrency. & Passed\\
+Playwright scenario 1 & Complete three-user creation, payment, matching, delivery, reveal and permanent collection. & Passed\\
+Playwright scenario 2 & Mobile homepage and studio usability, with width checks. & Passed\\
+Playwright scenario 3 & Guest concept recovery through sign-up, saved-draft reload and PNG export. & Passed\\
+npm audit & Known dependency advisories at validation time. & Zero reported\\
+\bottomrule
+\end{tabularx}
+\caption{Executed validation results for the implemented MVP.}
+\end{table}
+
+\subsection{Concurrency and privacy verification}
+Database tests launch simultaneous matching calls with different request keys and verify that exactly one eligible round consumes the same queue. They also replay a successful key and verify that the existing exchange is returned.
+
+Browser tests verify distinct toys and recipients, absence of self-assignment, rejection of another user's private toy request, administrator authorization, invalid-origin rejection, pre-reveal secrecy, recipient collection ownership and generated notifications. The final three browser scenarios were also executed against a separately built application instance.
+
+\subsection{Verification boundaries}
+Passing tests establish the behavior covered by those scenarios. They do not establish complete browser compatibility, full accessibility compliance, comprehensive content moderation, or readiness for real commerce. Live external-provider calls, MySQL-container execution, Safari/Firefox coverage and a public production deployment remain unverified.
+
+\section{Engineering Decisions and Trade-offs}
+
+\begin{itemize}
+  \item \textbf{Single application:} simplifies local execution and transactional boundaries; independent service scaling is deferred.
+  \item \textbf{Relational exchange model:} explicitly represents creators, recipients and rounds, allowing uniqueness constraints to protect business rules.
+  \item \textbf{JSON appearance configuration:} supports evolving visual options while retaining centralized validation and deterministic reconstruction.
+  \item \textbf{Procedural 3D:} provides immediate editable geometry without external asset-generation dependencies; it limits sculptural variety.
+  \item \textbf{Deterministic fallback:} keeps concept creation usable without credentials and makes results reproducible.
+  \item \textbf{Shared database lock:} prioritizes correctness under concurrency, at the cost of serialized exchange-sensitive writes.
+  \item \textbf{Atomic receipt and collection:} prevents a confirmed delivery from being lost before collection persistence.
+  \item \textbf{Illustrated gallery previews:} reduce graphics overhead; the studio remains the authoritative interactive 3D view.
+  \item \textbf{Simulated external operations:} demonstrate the full product flow while leaving verified payment and logistics adapters for future work.
+\end{itemize}
+
+\section{Limitations and Future Development}
+
+The following work is required to extend the demonstration:
+\begin{enumerate}
+  \item Integrate verified payment webhooks, refund policies and real shipping operations.
+  \item Add manufacturing constraints and export formats appropriate to physical production.
+  \item Introduce additional original mesh families and support compatible multiple accessories.
+  \item Verify a live concept provider and optionally add clearly distinguished 2D concept illustrations.
+  \item Implement email verification, password recovery and account-data deletion workflows.
+  \item Expand moderation, accessibility, browser and low-end-device coverage.
+  \item Replace in-memory limiting with shared infrastructure for multiple application instances.
+  \item Add administrative pagination and partition exchange queues where needed.
+  \item Run MySQL 8 container tests in continuous integration.
+  \item Establish backups, monitoring, recovery testing, retention policies and deployment procedures.
+\end{enumerate}
+
+Cancelled assignments currently remain terminal and are never reassigned. A product policy for replacements and financial compensation must be defined before introducing real commerce.
+
+\section{Conclusion}
+
+SoulToy implements a coherent designer-toy exchange journey across the presentation, graphics, client-state, API, domain-service and persistence layers. Its original procedural studio is connected to durable records, simulated checkout, an atomic matching engine, controlled delivery transitions and a recipient-only reveal.
+
+The project demonstrates that creative interaction and transactional correctness can coexist in a compact web architecture. Its completed automated scenarios validate the central three-user exchange and important persistence and privacy behaviors. The remaining work concerns production operations, external integrations, broader graphics capabilities and wider validation rather than replacing the core conceptual model.
+
+\appendix
+\section{Useful Project Commands}
+\begin{lstlisting}
+npm run dev                  # Development server
+npm run build                # Generate Prisma and compile Next.js
+npm start                    # Serve the production build
+npm run typecheck            # Strict TypeScript validation
+npm run db:migrate           # Apply checked-in migrations
+npm run db:seed              # Populate the demonstration
+npm run test:prepare         # Prepare soultoy_test
+npm test                     # Run Vitest
+npm run test:e2e:prepare      # Prepare soultoy_e2e
+npx playwright install chromium
+npm run test:e2e             # Run all browser scenarios
+\end{lstlisting}
+
+\section{Project Documentation}
+The repository includes a README and dedicated documents for architecture, database design, matching, concept generation, HTTP APIs, the demonstration scenario, implementation status and future development. These documents complement the source code and provide the operational details necessary to reproduce the local MVP.
+
+\end{document}

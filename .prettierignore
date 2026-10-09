@@ -1,0 +1,9 @@
+node_modules
+.next
+.next-e2e
+.runtime
+src/generated
+package-lock.json
+playwright-report
+test-results
+prisma/migrations

@@ -1,0 +1,11 @@
+node_modules/
+.next/
+.next-e2e/
+.env
+.env.local
+.runtime/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+src/generated/
